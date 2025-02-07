@@ -1,10 +1,23 @@
-#!/bin/sh
+# 1. Get the existing Cloudflare IPs
+old_cf_ips=$(ufw status | grep 'Cloudflare IP' | awk '{print $3}')
 
-# Delete existing rules with the comment 'Cloudflare IP'
-ufw status numbered | grep 'Cloudflare IP' | sed -E 's/^\[ *([0-9]+)\].*/\1/' | sort -nr | while read -r rule ; do ufw --force delete "$rule"; done
+# 2. Get the latest Cloudflare IPs
+new_cf_ips=$(curl -sw '\n' https://www.cloudflare.com/ips-v{4,6})
 
-# Allow all traffic from Cloudflare IPs (no ports restriction)
-for cfip in `curl -sw '\n' https://www.cloudflare.com/ips-v{4,6}`; do ufw allow proto tcp from $cfip comment 'Cloudflare IP'; done
+# 3. Delete the old IPs that are no longer in the new IP list
+for ip in $old_cf_ips; do
+    if ! echo "$new_cf_ips" | grep -qw "$ip"; then
+        rule_number=$(ufw status numbered | grep "$ip" | sed -E 's/^\[ *([0-9]+)\].*/\1/')
+        if [ -n "$rule_number" ]; then
+            ufw --force delete "$rule_number"
+        fi
+    fi
+done
+
+# 4. Allow the new Cloudflare IPs
+for cfip in $new_cf_ips; do
+    ufw allow proto tcp from "$cfip" comment 'Cloudflare IP';
+done
 
 ufw reload > /dev/null
 
